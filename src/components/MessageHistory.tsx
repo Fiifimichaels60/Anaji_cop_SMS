@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Search, Filter } from 'lucide-react';
-import { mockMessages } from '../data/mockData';
+import { useSupabase } from '../hooks/useSupabase';
 
 const MessageHistory: React.FC = () => {
+  const { messages, loading, error, clearError } = useSupabase();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
 
-  const filteredMessages = mockMessages.filter(message => {
+  const filteredMessages = messages.filter(message => {
     const matchesSearch = message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         message.recipients.some(r => r.toLowerCase().includes(searchTerm.toLowerCase()));
+                         (message.recipients || []).some(r => r.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesStatus = !statusFilter || message.status === statusFilter;
-    const matchesDate = !dateFilter || new Date(message.sentAt).toDateString() === new Date(dateFilter).toDateString();
+    const matchesDate = !dateFilter || new Date(message.created_at).toDateString() === new Date(dateFilter).toDateString();
     
     return matchesSearch && matchesStatus && matchesDate;
   });
@@ -46,8 +48,28 @@ const MessageHistory: React.FC = () => {
     return total > 0 ? Math.round((delivered / total) * 100) : 0;
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-red-700 underline text-sm mt-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header and Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0 mb-6">
@@ -101,7 +123,7 @@ const MessageHistory: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total Messages</p>
-              <p className="text-2xl font-bold text-gray-900">{mockMessages.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{messages.length}</p>
             </div>
             <div className="p-3 bg-blue-100 rounded-lg">
               <Users className="h-6 w-6 text-blue-600" />
@@ -114,7 +136,7 @@ const MessageHistory: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">Delivered</p>
               <p className="text-2xl font-bold text-green-600">
-                {mockMessages.reduce((sum, msg) => sum + msg.deliveredCount, 0)}
+                {messages.reduce((sum, msg) => sum + msg.delivered_count, 0)}
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-lg">
@@ -128,8 +150,8 @@ const MessageHistory: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">Success Rate</p>
               <p className="text-2xl font-bold text-purple-600">
-                {Math.round((mockMessages.reduce((sum, msg) => sum + msg.deliveredCount, 0) / 
-                           mockMessages.reduce((sum, msg) => sum + msg.totalRecipients, 0)) * 100)}%
+                {messages.length > 0 ? Math.round((messages.reduce((sum, msg) => sum + msg.delivered_count, 0) / 
+                           messages.reduce((sum, msg) => sum + msg.total_recipients, 0)) * 100) : 0}%
               </p>
             </div>
             <div className="p-3 bg-purple-100 rounded-lg">
@@ -143,8 +165,8 @@ const MessageHistory: React.FC = () => {
             <div>
               <p className="text-sm text-gray-600">This Month</p>
               <p className="text-2xl font-bold text-orange-600">
-                {mockMessages.filter(msg => 
-                  new Date(msg.sentAt).getMonth() === new Date().getMonth()
+                {messages.filter(msg => 
+                  new Date(msg.created_at).getMonth() === new Date().getMonth()
                 ).length}
               </p>
             </div>
@@ -167,14 +189,14 @@ const MessageHistory: React.FC = () => {
                     {message.status.charAt(0).toUpperCase() + message.status.slice(1)}
                   </span>
                   <span className="text-sm text-gray-500">
-                    {new Date(message.sentAt).toLocaleString()}
+                    {new Date(message.sent_at || message.created_at).toLocaleString()}
                   </span>
                 </div>
                 
                 <div className="mb-4">
                   <p className="text-gray-900 font-medium mb-2">{message.content}</p>
                   <div className="flex flex-wrap gap-2">
-                    {message.groups.map((group, index) => (
+                    {(message.groups || []).map((group, index) => (
                       <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                         {group}
                       </span>
@@ -185,15 +207,15 @@ const MessageHistory: React.FC = () => {
                 <div className="flex items-center space-x-6 text-sm text-gray-600">
                   <div className="flex items-center space-x-1">
                     <Users className="h-4 w-4" />
-                    <span>{message.totalRecipients} recipients</span>
+                    <span>{message.total_recipients} recipients</span>
                   </div>
                   <div className="flex items-center space-x-1">
                     <CheckCircle className="h-4 w-4" />
-                    <span>{message.deliveredCount} delivered</span>
+                    <span>{message.delivered_count} delivered</span>
                   </div>
                   <div className="flex items-center space-x-1">
                     <span className="text-green-600 font-medium">
-                      {getDeliveryRate(message.deliveredCount, message.totalRecipients)}% success rate
+                      {getDeliveryRate(message.delivered_count, message.total_recipients)}% success rate
                     </span>
                   </div>
                 </div>
@@ -209,12 +231,12 @@ const MessageHistory: React.FC = () => {
                         message.status === 'sent' ? 'bg-green-500' : 'bg-yellow-500'
                       }`}
                       style={{ 
-                        width: `${getDeliveryRate(message.deliveredCount, message.totalRecipients)}%` 
+                        width: `${getDeliveryRate(message.delivered_count, message.total_recipients)}%` 
                       }}
                     ></div>
                   </div>
                   <span className="text-xs text-gray-500">
-                    {getDeliveryRate(message.deliveredCount, message.totalRecipients)}%
+                    {getDeliveryRate(message.delivered_count, message.total_recipients)}%
                   </span>
                 </div>
               </div>

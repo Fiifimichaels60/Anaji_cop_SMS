@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
 import { Send, Users, MessageSquare, Eye, Clock, CheckCircle } from 'lucide-react';
-import { mockMembers, mockGroups, mockTemplates } from '../data/mockData';
+import { useSupabase } from '../hooks/useSupabase';
 
 const ComposeSMS: React.FC = () => {
+  const {
+    members,
+    groups,
+    templates,
+    sendMessage,
+    loading,
+    error,
+    clearError
+  } = useSupabase();
+
   const [message, setMessage] = useState('');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
@@ -28,7 +38,7 @@ const ComposeSMS: React.FC = () => {
   };
 
   const handleTemplateSelect = (templateId: string) => {
-    const template = mockTemplates.find(t => t.id === templateId);
+    const template = templates.find(t => t.id === templateId);
     if (template) {
       setMessage(template.content);
       setSelectedTemplate(templateId);
@@ -36,11 +46,11 @@ const ComposeSMS: React.FC = () => {
   };
 
   const getTotalRecipients = () => {
-    const groupMembers = mockMembers.filter(member => 
-      selectedGroups.includes(mockGroups.find(g => g.name === member.group)?.id || '')
+    const groupMembers = members.filter(member => 
+      selectedGroups.includes(member.group_id || '') && member.active
     );
-    const individualMembers = mockMembers.filter(member => 
-      selectedMembers.includes(member.id)
+    const individualMembers = members.filter(member => 
+      selectedMembers.includes(member.id) && member.active
     );
     
     const allRecipients = new Set([...groupMembers, ...individualMembers]);
@@ -48,23 +58,58 @@ const ComposeSMS: React.FC = () => {
   };
 
   const handleSend = async () => {
+    if (!message || getTotalRecipients() === 0) return;
+
     setIsSending(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setIsSending(false);
-    setSent(true);
-    setTimeout(() => setSent(false), 3000);
+    clearError();
+
+    try {
+      await sendMessage(message, selectedGroups, selectedMembers);
+      setSent(true);
+      
+      // Reset form
+      setMessage('');
+      setSelectedGroups([]);
+      setSelectedMembers([]);
+      setSelectedTemplate('');
+      
+      setTimeout(() => setSent(false), 3000);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setIsSending(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-red-700 underline text-sm mt-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-blue-100 text-sm">Total Members</p>
-              <p className="text-2xl font-bold">{mockMembers.length}</p>
+              <p className="text-2xl font-bold">{members.filter(m => m.active).length}</p>
             </div>
             <Users className="h-8 w-8 text-blue-200" />
           </div>
@@ -74,7 +119,7 @@ const ComposeSMS: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-green-100 text-sm">Active Groups</p>
-              <p className="text-2xl font-bold">{mockGroups.length}</p>
+              <p className="text-2xl font-bold">{groups.length}</p>
             </div>
             <MessageSquare className="h-8 w-8 text-green-200" />
           </div>
@@ -98,7 +143,7 @@ const ComposeSMS: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Message Templates</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {mockTemplates.map((template) => (
+              {templates.map((template) => (
                 <button
                   key={template.id}
                   onClick={() => handleTemplateSelect(template.id)}
@@ -168,7 +213,7 @@ const ComposeSMS: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Groups</h3>
             <div className="space-y-3">
-              {mockGroups.map((group) => (
+              {groups.map((group) => (
                 <label
                   key={group.id}
                   className="flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
@@ -193,7 +238,7 @@ const ComposeSMS: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Individual Members</h3>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {mockMembers.filter(member => member.active).map((member) => (
+              {members.filter(member => member.active).map((member) => (
                 <label
                   key={member.id}
                   className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer"

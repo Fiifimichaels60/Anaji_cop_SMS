@@ -1,20 +1,35 @@
 import React, { useState } from 'react';
 import { Plus, Search, Edit, Trash2, Phone, Mail, Calendar, UserCheck, UserX } from 'lucide-react';
-import { mockMembers, mockGroups } from '../data/mockData';
-import { Member } from '../types';
+import { useSupabase } from '../hooks/useSupabase';
+import { Database } from '../lib/database.types';
+
+type Member = Database['public']['Tables']['members']['Row'] & {
+  group?: Database['public']['Tables']['groups']['Row'];
+};
 
 const MembersManagement: React.FC = () => {
+  const {
+    members,
+    groups,
+    addMember,
+    updateMember,
+    deleteMember,
+    loading,
+    error,
+    clearError
+  } = useSupabase();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
   const [showActiveOnly, setShowActiveOnly] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
-  const filteredMembers = mockMembers.filter(member => {
+  const filteredMembers = members.filter(member => {
     const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          member.phone.includes(searchTerm) ||
                          member.email?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesGroup = !selectedGroup || member.group === selectedGroup;
+    const matchesGroup = !selectedGroup || member.group_id === selectedGroup;
     const matchesActive = !showActiveOnly || member.active;
     
     return matchesSearch && matchesGroup && matchesActive;
@@ -25,15 +40,28 @@ const MembersManagement: React.FC = () => {
       name: member?.name || '',
       phone: member?.phone || '',
       email: member?.email || '',
-      group: member?.group || mockGroups[0].name,
+      group_id: member?.group_id || (groups[0]?.id || ''),
       active: member?.active ?? true
     });
+    const [saving, setSaving] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
-      // Here you would typically save to your backend
-      console.log('Saving member:', formData);
-      onClose();
+      setSaving(true);
+      clearError();
+
+      try {
+        if (member) {
+          await updateMember(member.id, formData);
+        } else {
+          await addMember(formData);
+        }
+        onClose();
+      } catch (error) {
+        console.error('Failed to save member:', error);
+      } finally {
+        setSaving(false);
+      }
     };
 
     return (
@@ -79,12 +107,12 @@ const MembersManagement: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Group</label>
               <select
-                value={formData.group}
-                onChange={(e) => setFormData({...formData, group: e.target.value})}
+                value={formData.group_id}
+                onChange={(e) => setFormData({...formData, group_id: e.target.value})}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                {mockGroups.map(group => (
-                  <option key={group.id} value={group.name}>{group.name}</option>
+                {groups.map(group => (
+                  <option key={group.id} value={group.id}>{group.name}</option>
                 ))}
               </select>
             </div>
@@ -107,14 +135,16 @@ const MembersManagement: React.FC = () => {
                 type="button"
                 onClick={onClose}
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                disabled={saving}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                disabled={saving}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {member ? 'Update' : 'Add'} Member
+                {saving ? 'Saving...' : member ? 'Update' : 'Add'} Member
               </button>
             </div>
           </form>
@@ -123,8 +153,38 @@ const MembersManagement: React.FC = () => {
     );
   };
 
+  const handleDelete = async (memberId: string) => {
+    if (confirm('Are you sure you want to delete this member?')) {
+      try {
+        await deleteMember(memberId);
+      } catch (error) {
+        console.error('Failed to delete member:', error);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-red-700 underline text-sm mt-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header and Controls */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
@@ -161,8 +221,8 @@ const MembersManagement: React.FC = () => {
             className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Groups</option>
-            {mockGroups.map(group => (
-              <option key={group.id} value={group.name}>{group.name}</option>
+            {groups.map(group => (
+              <option key={group.id} value={group.id}>{group.name}</option>
             ))}
           </select>
           
@@ -189,7 +249,9 @@ const MembersManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">{member.name}</h3>
-                  <p className="text-sm text-gray-500">{member.group}</p>
+                  <p className="text-sm text-gray-500">
+                    {member.group?.name || 'No Group'}
+                  </p>
                 </div>
               </div>
               
@@ -200,7 +262,10 @@ const MembersManagement: React.FC = () => {
                 >
                   <Edit className="h-4 w-4" />
                 </button>
-                <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                <button 
+                  onClick={() => handleDelete(member.id)}
+                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
@@ -219,7 +284,7 @@ const MembersManagement: React.FC = () => {
               )}
               <div className="flex items-center space-x-2 text-sm text-gray-600">
                 <Calendar className="h-4 w-4" />
-                <span>Joined {new Date(member.joinDate).toLocaleDateString()}</span>
+                <span>Joined {new Date(member.join_date).toLocaleDateString()}</span>
               </div>
             </div>
             
@@ -234,7 +299,7 @@ const MembersManagement: React.FC = () => {
               </div>
               
               <div className={`w-3 h-3 rounded-full ${
-                mockGroups.find(g => g.name === member.group)?.color || 'bg-gray-400'
+                member.group?.color || 'bg-gray-400'
               }`}></div>
             </div>
           </div>
